@@ -10,7 +10,7 @@ namespace Helpers.DotMatrixPrinting
     {
         private readonly string _printerNameOrDevice;
 
-        public DotMatrixPrinter(string printerNameOrDevice = "EPSON LX-310")
+        public DotMatrixPrinter(string printerNameOrDevice = "EPSON LX-310 ESC/P (Copy 1)")
         {
             _printerNameOrDevice = printerNameOrDevice;
         }
@@ -32,33 +32,20 @@ namespace Helpers.DotMatrixPrinting
         }
 
         // --- WINDOWS RAW PRINT ---
-        private void PrintWindows(string content)
+            private void PrintWindows(string data)
         {
-            byte[] bytes = Encoding.ASCII.GetBytes(content);
-            IntPtr unmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
-            Marshal.Copy(bytes, 0, unmanagedBytes, bytes.Length);
-
             try
             {
-                if (OpenPrinter(_printerNameOrDevice.Normalize(), out IntPtr hPrinter, IntPtr.Zero))
+                if (!RawPrinterHelper.SendStringToPrinter(_printerNameOrDevice, data))
                 {
-                    if (StartDocPrinter(hPrinter, 1, IntPtr.Zero))
-                    {
-                        StartPagePrinter(hPrinter);
-                        WritePrinter(hPrinter, unmanagedBytes, bytes.Length, out _);
-                        EndPagePrinter(hPrinter);
-                        EndDocPrinter(hPrinter);
-                    }
-                    ClosePrinter(hPrinter);
+                    throw new Exception("Failed to send data to printer.");
                 }
-                else
-                {
-                    throw new Exception($"Unable to open printer '{_printerNameOrDevice}'");
-                }
+
+                Console.WriteLine($"✅ Printed to Windows printer: {_printerNameOrDevice}");
             }
-            finally
+            catch (Exception ex)
             {
-                Marshal.FreeCoTaskMem(unmanagedBytes);
+                Console.WriteLine($"❌ Windows printing error: {ex.Message}");
             }
         }
 
@@ -85,27 +72,68 @@ namespace Helpers.DotMatrixPrinting
             writer.Flush();
         }
 
-        #region Win32 Imports
-        [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true)]
-        private static extern bool OpenPrinter(string src, out IntPtr hPrinter, IntPtr pd);
+        public static class RawPrinterHelper
+        {
+            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+            public class DOCINFOA
+            {
+                [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+                [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+                [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+            }
 
-        [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
-        private static extern bool ClosePrinter(IntPtr hPrinter);
+            [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true)]
+            public static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
 
-        [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true)]
-        private static extern bool StartDocPrinter(IntPtr hPrinter, int level, IntPtr di);
+            [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
+            public static extern bool ClosePrinter(IntPtr hPrinter);
 
-        [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
-        private static extern bool EndDocPrinter(IntPtr hPrinter);
+            [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true)]
+            public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] DOCINFOA di);
 
-        [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
-        private static extern bool StartPagePrinter(IntPtr hPrinter);
+            [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
+            public static extern bool EndDocPrinter(IntPtr hPrinter);
 
-        [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
-        private static extern bool EndPagePrinter(IntPtr hPrinter);
+            [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
+            public static extern bool StartPagePrinter(IntPtr hPrinter);
 
-        [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
-        private static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
-        #endregion
+            [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
+            public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+            [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
+            public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
+
+            public static bool SendStringToPrinter(string printerName, string data)
+            {
+                IntPtr hPrinter;
+                DOCINFOA di = new()
+                {
+                    pDocName = "DotMatrix Print Job",
+                    pDataType = "RAW"
+                };
+
+                if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero))
+                    return false;
+
+                try
+                {
+                    StartDocPrinter(hPrinter, 1, di);
+                    StartPagePrinter(hPrinter);
+
+                    IntPtr pBytes = Marshal.StringToCoTaskMemAnsi(data);
+                    WritePrinter(hPrinter, pBytes, data.Length, out _);
+                    Marshal.FreeCoTaskMem(pBytes);
+
+                    EndPagePrinter(hPrinter);
+                    EndDocPrinter(hPrinter);
+                }
+                finally
+                {
+                    ClosePrinter(hPrinter);
+                }
+
+                return true;
+            }
+        }
     }
 }

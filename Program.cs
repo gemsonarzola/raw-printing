@@ -56,7 +56,7 @@ var receipt = new ReceiptBuilder(72)
 
         string data = EscPos.Initialize + receipt.ToString();
 
-        var printer = new DotMatrixPrinter(OperatingSystem.IsWindows() ? "EPSON LX-310" : "/dev/usb/lp0");
+        var printer = new DotMatrixPrinter(OperatingSystem.IsWindows() ? "EPSON LX-310 ESC/P (Copy 1)" : "/dev/usb/lp0");
         printer.Print(data);
 
         Console.WriteLine("Receipt printed successfully!");
